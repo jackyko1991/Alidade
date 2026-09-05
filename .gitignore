@@ -1,0 +1,36 @@
+# Flutter / Dart
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/**/*.jks
+app/**/*.keystore
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+
+# Rust
+target/
+**/target/
+
+# spike/: research CLI + data-generation scripts. Keep the scripts
+# (build_*.py) and this tree's structure; everything below is either
+# regenerable from those scripts, downloaded from an upstream source, or a
+# one-off debug artifact (screenshots, uiautomator dumps, adb/flutter logs)
+# from an interactive debugging session — none of it belongs in version
+# control (the solver databases alone run into the hundreds of MB).
+spike/data/*.bin
+spike/data/test/
+spike/data/scratch/
+spike/data/catalogs/*.raw.json
+spike/data/catalogs/*.dat
+spike/data/catalogs/*.dat.gz
+spike/data/catalogs/*.readme
+spike/data/catalogs/messier_raw.json
+spike/data/iau_proper_stars.csv
+spike/target/
+
+# Misc
+*.DS_Store

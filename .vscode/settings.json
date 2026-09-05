@@ -1,0 +1,16 @@
+{
+  "dart.flutterSdkPath": "D:\\dev\\flutter",
+  "dart.debugExternalPackageLibraries": false,
+  "dart.previewFlutterUiGuides": true,
+  "terminal.integrated.env.windows": {
+    "JAVA_HOME": "D:\\dev\\jdk-17.0.20+8",
+    "ANDROID_HOME": "D:\\dev\\android-sdk",
+    "ANDROID_SDK_ROOT": "D:\\dev\\android-sdk"
+  },
+  "rust-analyzer.linkedProjects": ["spike/Cargo.toml"],
+  "[dart]": {
+    "editor.formatOnSave": true,
+    "editor.rulers": [80],
+    "editor.selectionHighlight": false
+  }
+}

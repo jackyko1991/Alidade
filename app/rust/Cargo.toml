@@ -1,0 +1,19 @@
+[package]
+name = "alidade_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# "lib" (rlib) added so `cargo test`'s integration tests (tests/) can link
+# against the crate directly — cdylib/staticlib alone are FFI-only outputs
+# with no linkable rlib for the test harness. Doesn't change the
+# Android/iOS build, which only uses cdylib/staticlib.
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+tetra3 = { version = "=0.13.0", features = ["image"] }
+image = "0.25"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

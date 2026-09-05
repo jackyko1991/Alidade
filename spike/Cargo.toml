@@ -1,0 +1,11 @@
+[package]
+name = "alidade_spike"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tetra3 = { version = "=0.13.0", features = ["image"] }
+numeris = "=0.5.19"
+image = "0.25"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
