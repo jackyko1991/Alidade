@@ -60,16 +60,18 @@ algorithm. Given a set of star positions extracted from your photo, it
 matches their geometric pattern against a bundled star catalog — no prior
 pointing estimate required.
 
-```
-Flutter UI (Android · iOS · Web)
-   │  image picker → normalize orientation → solve → WCS overlay
-   ▼
-flutter_rust_bridge  (Dart ⇄ Rust FFI, native dylib or WASM depending on platform)
-   ▼
-Rust solver crate (alidade_core)
-   │  tetra3 (tetra3rs): star detection, centroiding, pattern matching
-   ▼
-SolveOutcome { ra, dec, roll, fov, matched stars, solve time }
+```mermaid
+flowchart TD
+    A["Flutter UI (Android · iOS · Web)"]
+    B["flutter_rust_bridge
+    (Dart ⇄ Rust FFI, native dylib or WASM depending on platform)"]
+    C["Rust solver crate (alidade_core)"]
+    D["SolveOutcome
+    { ra, dec, roll, fov, matched stars, solve time }"]
+
+    A -->|"image picker → normalize orientation → solve → WCS overlay"| B
+    B --> C
+    C -->|"tetra3 (tetra3rs): star detection, centroiding, pattern matching"| D
 ```
 
 On Android/iOS the Rust core compiles to a native library (via
