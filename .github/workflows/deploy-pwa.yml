@@ -124,6 +124,27 @@ jobs:
         working-directory: app
         run: flutter build web --release --base-href /Alidade/
 
+      # The per-lens solver databases are hosted as GitHub Release assets
+      # for the native app, but confirmed live (headless Chrome against
+      # the deployed PWA) that a browser can't fetch them from there:
+      # GitHub's release-asset host sends no Access-Control-Allow-Origin
+      # header, so the cross-origin request is blocked by CORS
+      # ("TypeError: Failed to fetch"). db_manifest.dart's `downloadUrl`
+      # already points web builds at a same-origin `dbs/` path instead —
+      # this step is what actually puts the files there, copied into the
+      # Pages build output so they're served from the same origin as the
+      # app and never hit CORS at all.
+      - name: Download solver databases for same-origin serving
+        working-directory: app
+        run: |
+          mkdir -p build/web/dbs
+          gh release download databases-v1 \
+            --repo jackyko1991/Alidade \
+            --dir build/web/dbs \
+            --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -135,7 +156,47 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # Catches exactly the kind of bug that only shows up driving the real,
+  # deployed page — GitHub Pages' lack of CORS/COOP headers and
+  # path_provider's missing web backend both compiled cleanly and looked
+  # fine from source; only a real browser hitting the live URL caught
+  # them (see docs/web-build.md). Runs against the URL this same deploy
+  # just published, not a local build.
+  e2e_test:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install e2e test dependencies
+        working-directory: e2e
+        run: npm install
+
+      - name: Install Playwright's Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e test against the deployed page
+        working-directory: e2e
+        run: npx playwright test
+        env:
+          ALIDADE_URL: ${{ needs.deploy.outputs.page_url }}
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/test-results
+          retention-days: 7

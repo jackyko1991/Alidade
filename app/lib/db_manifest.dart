@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 /// One downloadable solver database, covering a range of horizontal FOV
-/// (and so, roughly, a range of focal lengths). Sizes and URLs come from
-/// the `databases-v1` GitHub Release — built via
-/// `spike/data/catalogs`'s `build-db` step at the given max FOV; see
-/// spike/data for how these were generated and measured.
+/// (and so, roughly, a range of focal lengths). Sizes come from the
+/// `databases-v1` GitHub Release — built via `spike/data/catalogs`'s
+/// `build-db` step at the given max FOV; see spike/data for how these
+/// were generated and measured.
 ///
 /// Deliberately excludes sub-1° FOV (very long telephoto / heavy crop):
 /// that regime needs much bigger databases (a single-scale 1°-max
@@ -23,8 +25,21 @@ class DbBucket {
 
   String get fileName => 'db_$id.bin';
 
-  String get downloadUrl =>
-      'https://github.com/jackyko1991/Alidade/releases/download/databases-v1/$fileName';
+  // Native builds fetch straight from the GitHub Release. The web build
+  // can't: confirmed live (headless Chrome against the deployed PWA) that
+  // fetching a release asset from a GitHub Pages origin fails with
+  // "TypeError: Failed to fetch" — GitHub's release-asset host
+  // (release-assets.githubusercontent.com) sends no
+  // Access-Control-Allow-Origin header, so the browser blocks the
+  // cross-origin response entirely. Serving the same files same-origin
+  // instead (copied into the Pages build's own `dbs/` folder by
+  // .github/workflows/deploy-pwa.yml) sidesteps CORS altogether. This is
+  // a relative URL, resolved by the browser against the page's own
+  // `<base href>` — works whether that's `/Alidade/` (GitHub Pages) or
+  // `/` (a future custom domain) without needing to know it here.
+  String get downloadUrl => kIsWeb
+      ? 'dbs/$fileName'
+      : 'https://github.com/jackyko1991/Alidade/releases/download/databases-v1/$fileName';
 
   String get sizeLabel {
     if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).round()} KB';

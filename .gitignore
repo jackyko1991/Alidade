@@ -33,5 +33,10 @@ spike/data/catalogs/messier_raw.json
 spike/data/iau_proper_stars.csv
 spike/target/
 
+# e2e/ (Playwright)
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+
 # Misc
 *.DS_Store
