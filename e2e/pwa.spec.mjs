@@ -53,6 +53,15 @@ test('loads, has no console errors, and downloads a solver database', async ({ p
   // that (a) the wasm module initialized, (b) the same-origin `dbs/` fetch
   // wasn't blocked by CORS, and (c) no dart:io/path_provider call crashed.
   await expect(downloadButton).toBeHidden({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  // Solve history has the exact same native-only-storage failure mode the
+  // database download had (path_provider, no web backend) — opening it used
+  // to throw MissingPluginException on web. An empty list is the correct,
+  // working result for a fresh profile with no solves yet.
+  await page.getByRole('button', { name: 'Solve history' }).click();
+  await expect(page.getByText('No solves yet')).toBeVisible({ timeout: 10_000 });
+  await page.goBack();
 
   expect(
     consoleErrors.filter((e) => !e.includes('Buffers cannot be shared')),

@@ -21,10 +21,11 @@ on-device (or on-page, for the web build) in well under a second.
 runs the real Rust solver compiled to WebAssembly, entirely in your browser.
 Nothing is uploaded anywhere. Works on desktop and mobile browsers; add it to
 your phone's home screen for an app-like install (it's a installable PWA).
-One difference from the native app: the web build's downloaded solver
-database isn't cached to disk between sessions (no browser API for that —
-see [`docs/web-build.md`](docs/web-build.md)), so it re-downloads once per
-page load.
+Two differences from the native app, both because there's no browser API
+for persistent app storage the way there is on Android/iOS (see
+[`docs/web-build.md`](docs/web-build.md)): the downloaded solver database
+isn't cached to disk, so it re-downloads once per page load, and solve
+history isn't saved between sessions either.
 
 For Android, build from source (see [Building](#building) below) — a
 prebuilt APK release is planned but not published yet.

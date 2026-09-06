@@ -657,7 +657,19 @@ class _SolveScreenState extends State<SolveScreen> {
       appBar: AppBar(
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Image.asset('assets/icon/alidade_icon.png'),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: NightMode.enabled,
+            builder: (context, night, _) => night
+                // The full-color icon (dark background, cream/gold glyph)
+                // doesn't belong on night mode's plain black app bar — tint
+                // just the glyph (transparent background) red instead of
+                // showing colors night mode otherwise avoids everywhere else.
+                ? ColorFiltered(
+                    colorFilter: const ColorFilter.mode(nightModeColor, BlendMode.srcIn),
+                    child: Image.asset('assets/icon/alidade_icon_foreground.png'),
+                  )
+                : Image.asset('assets/icon/alidade_icon.png'),
+          ),
         ),
         title: const Text('Alidade'),
         actions: [

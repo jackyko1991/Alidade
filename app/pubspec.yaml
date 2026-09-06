@@ -90,6 +90,7 @@ flutter:
   assets:
     - assets/star_names.json
     - assets/icon/alidade_icon.png
+    - assets/icon/alidade_icon_foreground.png
     - assets/messier.json
     - assets/bsc5_designations.json
     - assets/constellation_lines.json
