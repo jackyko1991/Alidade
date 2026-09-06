@@ -1,0 +1,80 @@
+name: Build Android APK
+
+# Builds a release APK on every push to master and publishes it to a
+# rolling "app-latest" GitHub Release — the Android leg of distribution
+# described in the project plan (APK-only, direct GitHub Releases
+# download, no Play Store submission), alongside the PWA build in
+# deploy-pwa.yml. The release's single asset is replaced each run rather
+# than accumulating a new release per commit.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "app/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.2"
+          channel: stable
+          cache: true
+
+      # NDK version comes from `flutter.ndkVersion` in
+      # android/app/build.gradle.kts (not pinned in this repo) — Gradle
+      # provisions whichever version that resolves to itself, no separate
+      # NDK install step needed here.
+      - name: Install Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache cargo registry and rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/rust -> target
+
+      - name: flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      # A single universal APK (all ABIs) rather than --split-per-abi:
+      # simpler for a direct-download link, at the cost of a larger file
+      # (~70MB) than a device-specific split would be.
+      - name: Build release APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Rename APK for a cleaner download filename
+        run: cp app/build/app/outputs/flutter-apk/app-release.apk alidade.apk
+
+      # Updates the existing "app-latest" release's asset in place if the
+      # release already exists (every run after the first), rather than
+      # creating a new dated release per commit.
+      - name: Publish to the app-latest GitHub Release
+        run: |
+          if gh release view app-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload app-latest alidade.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create app-latest alidade.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Alidade (latest build)" \
+              --notes "Automatically built from the latest master commit — not a tagged/stable release. See the commit history for what changed."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

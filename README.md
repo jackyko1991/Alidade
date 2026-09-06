@@ -4,7 +4,7 @@
 
 <h1 align="center">Alidade</h1>
 
-<p align="center">An offline plate solver for astrophotographers without a finder scope.</p>
+<p align="center">A lightweight plate solver for astrophotographers without a finder scope.</p>
 
 <p align="center">
   <a href="https://github.com/jackyko1991/Alidade/actions/workflows/deploy-pwa.yml"><img src="https://github.com/jackyko1991/Alidade/actions/workflows/deploy-pwa.yml/badge.svg" alt="Deploy PWA to GitHub Pages"></a>
@@ -17,18 +17,24 @@ on-device (or on-page, for the web build) in well under a second.
 
 ## Try it now
 
-**[jackyko1991.github.io/Alidade](https://jackyko1991.github.io/Alidade/)** —
-runs the real Rust solver compiled to WebAssembly, entirely in your browser.
-Nothing is uploaded anywhere. Works on desktop and mobile browsers; add it to
-your phone's home screen for an app-like install (it's a installable PWA).
-Two differences from the native app, both because there's no browser API
-for persistent app storage the way there is on Android/iOS (see
-[`docs/web-build.md`](docs/web-build.md)): the downloaded solver database
-isn't cached to disk, so it re-downloads once per page load, and solve
-history isn't saved between sessions either.
+| Platform | Link |
+|---|---|
+| Web (PWA) | **[jackyko1991.github.io/Alidade](https://jackyko1991.github.io/Alidade/)** |
+| Android (APK) | **[Latest build](https://github.com/jackyko1991/Alidade/releases/tag/app-latest)** |
 
-For Android, build from source (see [Building](#building) below) — a
-prebuilt APK release is planned but not published yet.
+The web build runs the real Rust solver compiled to WebAssembly, entirely
+in your browser — nothing is uploaded anywhere. Works on desktop and mobile
+browsers; add it to your phone's home screen for an app-like install (it's
+an installable PWA). Two differences from the native app, both because
+there's no browser API for persistent app storage the way there is on
+Android (see [`docs/web-build.md`](docs/web-build.md)): the downloaded
+solver database isn't cached to disk, so it re-downloads once per page
+load, and solve history isn't saved between sessions either.
+
+The Android APK is built automatically from `master` on every push (see
+[`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)) and
+isn't Play Store-signed, so you'll need to allow installs from unknown
+sources.
 
 ## Features
 
