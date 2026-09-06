@@ -1,0 +1,28 @@
+rust_input: crate::api
+rust_root: rust/
+# Web-only variant of the generated bindings. GitHub Pages (the planned
+# web host) can't set the COOP/COEP response headers flutter_rust_bridge's
+# default threaded web build needs for SharedArrayBuffer — confirmed
+# locally: the default wasm-pack build fails at runtime with
+# "SharedArrayBuffer transfer requires self.crossOriginIsolated" the
+# moment it tries to spin up its worker pool. This restricts every call
+# to the main thread instead (fine for this app: solves are 40-300ms,
+# well within a single frame budget), so no cross-origin isolation is
+# needed. See
+# https://cjycode.com/flutter_rust_bridge/manual/miscellaneous/web-cross-origin.
+#
+# Kept as a SEPARATE config (rather than applying default_dart_async to
+# the main flutter_rust_bridge.yaml) because this setting is global, not
+# per-platform — it would otherwise also make solve_image synchronous on
+# Android/iOS, blocking the UI thread on every solve instead of running
+# on flutter_rust_bridge's own worker thread as before. Regenerate this
+# tree with `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge_web.yaml`
+# immediately before a web build (see .github/workflows/deploy-pwa.yml) —
+# it overwrites rust/src/frb_generated.rs, which the native build's own
+# generated tree (lib/src/rust) also depends on, so re-run a plain
+# `flutter_rust_bridge_codegen generate` afterward before building native
+# again. lib/rust_bridge/ picks whichever tree matches the current
+# platform behind one shared, always-async interface — see its doc
+# comment for why the two trees can't just be used interchangeably.
+dart_output: lib/src/rust_web
+default_dart_async: false

@@ -60,6 +60,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
+  web:
+    generate: true
+    background_color: "#0c0d13"
+    theme_color: "#0c0d13"
   # Full-bleed square (no pre-baked rounded corners/transparency) for the
   # legacy/flat icon and iOS, which apply their own mask.
   image_path: assets/icon/alidade_icon_fullbleed.png

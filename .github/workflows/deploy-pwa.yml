@@ -1,0 +1,141 @@
+name: Deploy PWA to GitHub Pages
+
+# Builds the Rust solver to WebAssembly and the Flutter app to a static
+# web bundle, then publishes it to GitHub Pages at
+# https://jackyko1991.github.io/Alidade/ — the "installable PWA" leg of
+# distribution described in the project plan, alongside the Android APK.
+#
+# The wasm build deliberately opts OUT of flutter_rust_bridge's default
+# threaded web mode (see app/flutter_rust_bridge_web.yaml's
+# `default_dart_async: false` and its comment): that mode needs
+# COOP/COEP response headers for SharedArrayBuffer, which GitHub Pages
+# has no way to set. Every Rust call runs on the main thread instead on
+# web — fine here since solves are 40-300ms.
+#
+# This needs its own generated-bindings tree (app/lib/src/rust_web,
+# separate from the native app/lib/src/rust) because that setting is
+# global, not per-platform — applying it to the app's main
+# flutter_rust_bridge.yaml would also make solves block the UI thread on
+# Android/iOS. See app/lib/rust_bridge/rust_bridge.dart's doc comment for
+# the full picture, and note the regenerate step below overwrites
+# app/rust/src/frb_generated.rs with the web-shaped variant — never run
+# this workflow's steps against a working tree you also need for a
+# native build without regenerating the native bindings again afterward
+# (`flutter_rust_bridge_codegen generate`, no --config-file).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "app/**"
+      - ".github/workflows/deploy-pwa.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; let an in-flight run finish rather
+# than cancel it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.2"
+          channel: stable
+          cache: true
+
+      - name: Enable Flutter web
+        run: flutter config --enable-web
+
+      # wasm-pack always builds with `RUSTUP_TOOLCHAIN=nightly` (needed for
+      # `-Z build-std`, which flutter_rust_bridge_codegen's build-web
+      # command passes to get a `std` built for wasm32 with the
+      # thread-related target features it links against even in our
+      # single-threaded configuration).
+      - name: Install Rust nightly + wasm target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Cache cargo registry and rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/rust -> target
+
+      - name: Cache wasm-pack / flutter_rust_bridge_codegen binaries
+        id: tool-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/wasm-pack*
+            ~/.cargo/bin/flutter_rust_bridge_codegen*
+          # Bump this key if either pinned version below changes.
+          key: frb-web-tools-wasmpack0.15.0-frbcodegen2.13.0-${{ runner.os }}
+
+      - name: Install wasm-pack
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: cargo install wasm-pack --version 0.15.0 --locked
+
+      # Must match the `flutter_rust_bridge` version pinned in
+      # app/pubspec.yaml — a mismatch can silently regenerate bindings
+      # differently than what's committed.
+      - name: Install flutter_rust_bridge_codegen
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+
+      - name: flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      # Regenerates app/lib/src/rust_web AND overwrites
+      # app/rust/src/frb_generated.rs with the sync/single-threaded
+      # variant that build-web's wasm-pack invocation below actually
+      # compiles — see the workflow-level comment. This runner is
+      # ephemeral, so there's no need to restore the native variant
+      # afterward the way local dev must.
+      - name: Regenerate web-only bindings
+        working-directory: app
+        run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge_web.yaml
+
+      # Overrides wasm-pack's default RUSTFLAGS (which add
+      # atomics/shared-memory target features for threaded web workers)
+      # with a plain, non-threaded build — see the workflow-level comment.
+      - name: Build Rust solver to WebAssembly
+        working-directory: app
+        run: >-
+          flutter_rust_bridge_codegen build-web --release
+          --wasm-pack-rustflags="-C target-feature=+bulk-memory"
+
+      # Served from https://jackyko1991.github.io/Alidade/, not the
+      # domain root, so asset/script URLs need the matching base-href.
+      - name: Build Flutter web bundle
+        working-directory: app
+        run: flutter build web --release --base-href /Alidade/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

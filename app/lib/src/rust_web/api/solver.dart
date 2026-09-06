@@ -40,7 +40,7 @@ bool isDatabaseLoaded() =>
 ///
 /// Not marked `#[frb(sync)]`: flutter_rust_bridge runs this on a worker
 /// thread automatically, keeping the UI isolate free during the solve.
-Future<SolveOutcome> solveImage({
+SolveOutcome solveImage({
   required List<int> imageBytes,
   required double fovDeg,
   required double fovErrorDeg,

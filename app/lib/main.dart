@@ -1,9 +1,7 @@
-import 'dart:typed_data' hide Int64List;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart' show Int64List;
 import 'package:image_picker/image_picker.dart';
 
 import 'about_screen.dart';
@@ -16,15 +14,15 @@ import 'lens_picker.dart';
 import 'lens_preset.dart';
 import 'night_mode.dart';
 import 'object_names.dart';
-import 'src/rust/api/solver.dart' as solver;
-import 'src/rust/frb_generated.dart';
+import 'rust_bridge/rust_bridge.dart' as solver;
+import 'solve_outcome.dart';
 import 'star_names.dart';
 import 'star_overlay.dart';
 import 'wcs.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await RustLib.init();
+  await solver.initRust();
   await StarNames.load();
   await ObjectNameCatalog.load();
   await NightMode.load();
@@ -155,7 +153,7 @@ class _SolveScreenState extends State<SolveScreen> {
 
   Uint8List? _imageBytes;
   bool _solving = false;
-  solver.SolveOutcome? _result;
+  SolveOutcome? _result;
   List<NamedStarPosition> _namedStars = [];
   List<List<Offset?>> _constellationLines = [];
   String? _currentHistoryId;
@@ -300,7 +298,7 @@ class _SolveScreenState extends State<SolveScreen> {
     // removes the disagreement instead of trying to keep two decoders in
     // sync (this is what caused portrait photos to display sideways with
     // misplaced star-highlight circles).
-    final bytes = solver.normalizeOrientation(imageBytes: rawBytes);
+    final bytes = await solver.normalizeOrientationBytes(rawBytes);
     setState(() {
       _imageBytes = bytes;
       _result = null;
@@ -431,7 +429,7 @@ class _SolveScreenState extends State<SolveScreen> {
       if (downloaded != true) return false;
     }
     final bytes = await DbManager.readBytes(bucket);
-    solver.loadDatabase(bytes: bytes);
+    await solver.loadDatabaseBytes(bytes);
     _loadedBucketId = bucket.id;
     return true;
   }
@@ -463,7 +461,7 @@ class _SolveScreenState extends State<SolveScreen> {
 
     setState(() => _solving = true);
     try {
-      final result = await solver.solveImage(
+      final result = await solver.solveImageBytes(
         imageBytes: bytes,
         fovDeg: fovDeg,
         fovErrorDeg: fovErrorDeg,
@@ -541,7 +539,7 @@ class _SolveScreenState extends State<SolveScreen> {
 
   Future<void> _loadFromHistory(HistoryEntry entry) async {
     final bytes = await HistoryStore.fullImageBytes(entry);
-    final result = solver.SolveOutcome(
+    final result = SolveOutcome(
       success: true,
       raDeg: entry.raDeg,
       decDeg: entry.decDeg,
@@ -550,9 +548,8 @@ class _SolveScreenState extends State<SolveScreen> {
       matchedStars: entry.matchedStars,
       rmseArcsec: entry.rmseArcsec,
       solveTimeMs: entry.solveTimeMs,
-      matchedStarX: Float32List.fromList(entry.matchedStarX),
-      matchedStarY: Float32List.fromList(entry.matchedStarY),
-      matchedStarCatalogId: Int64List(0),
+      matchedStarX: entry.matchedStarX,
+      matchedStarY: entry.matchedStarY,
     );
     setState(() {
       _imageBytes = bytes;
@@ -1027,7 +1024,7 @@ class _ResultCard extends StatelessWidget {
     required this.onOpenSettings,
   });
 
-  final solver.SolveOutcome result;
+  final SolveOutcome result;
   final TextEditingController? nameController;
   final ValueChanged<String> onNameChanged;
   final VoidCallback onOpenSettings;
