@@ -15,10 +15,6 @@ Point your camera, take a shot, and Alidade tells you exactly where in the sky
 you're pointed. No internet connection required. Solving runs entirely
 on-device (or on-page, for the web build) in well under a second.
 
-<p align="center">
-  <img src="docs/assets/screenshot-overlay.png" width="280" alt="Alidade showing a solved image with matched stars, named-star labels, and constellation lines overlaid">
-</p>
-
 ## Try it now
 
 | Platform | Link | Notes |
@@ -80,8 +76,8 @@ flowchart TD
 On Android/iOS the Rust core compiles to a native library (via
 [cargokit](https://github.com/irondash/cargokit), no manual `cargo-ndk` step
 needed) and solves off the UI thread. On the web, the same Rust source
-compiles to WebAssembly (`wasm-pack`) and runs on the main thread instead.
-See [`docs/web-build.md`](docs/web-build.md) for why the two builds need
+compiles to WebAssembly (`wasm-pack`) and runs on the main thread instead —
+see [`docs/web-build.md`](docs/web-build.md) for why the two builds need
 separate generated bindings, if you're touching that code.
 
 ## Building
@@ -131,8 +127,8 @@ cd rust && cargo test --release    # Rust solver tests against real reference im
 ```
 
 There's also an end-to-end test in [`e2e/`](e2e/) (Playwright) that drives
-the deployed web build in a real browser (page load, adding a lens, and a
-same-origin database download) and runs automatically after every deploy.
+the deployed web build in a real browser — page load, adding a lens, and a
+same-origin database download — and runs automatically after every deploy.
 This is what caught the CORS and `path_provider`-on-web issues documented in
 [`docs/web-build.md`](docs/web-build.md); source alone didn't:
 
@@ -154,7 +150,7 @@ and summarized here:
 | Data | Source | License |
 |---|---|---|
 | Solving engine | [tetra3rs](https://github.com/ssmichael1/tetra3rs) (Rust port of ESA's [tetra3](https://github.com/esa/tetra3)) | MIT / Apache-2.0 |
-| Star catalog | Gaia DR3 + Hipparcos (ESA) | N/A |
+| Star catalog | Gaia DR3 + Hipparcos (ESA) | — |
 | Named-star lookup | [IAU Catalog of Star Names](https://github.com/cyschneck/iau-star-names) | MIT |
 | Star designations | Yale Bright Star Catalog (BSC5, Hoffleit & Warren 1991) | Public domain |
 | Messier object lookup | [messier-registry](https://github.com/wdelenclos/messier-registry) | MIT |
