@@ -1,5 +1,6 @@
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:alidade/db_manager.dart';
+import 'package:alidade/db_manifest.dart';
 import 'package:alidade/main.dart';
 import 'package:alidade/src/rust/api/solver.dart' as solver;
 import 'package:alidade/src/rust/frb_generated.dart';
@@ -9,8 +10,15 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     await RustLib.init();
-    final dbBytes = await rootBundle.load('assets/db/alidade_135mm.bin');
-    solver.loadDatabase(bytes: dbBytes.buffer.asUint8List());
+    // No bucket is bundled as an app asset any more (fov16 used to be a
+    // special-cased exception) — fetch it the same way the app itself
+    // would for a 135mm-class lens, via a real download.
+    final bucket = dbBuckets.firstWhere((b) => b.id == 'fov16');
+    if (!await DbManager.isDownloaded(bucket)) {
+      await DbManager.download(bucket);
+    }
+    final bytes = await DbManager.readBytes(bucket);
+    solver.loadDatabase(bytes: bytes);
   });
 
   testWidgets('Database loads and the solve screen renders', (

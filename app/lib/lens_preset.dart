@@ -82,21 +82,17 @@ const Map<String, (double, double)> commonSensorSizes = {
 const _prefsKey = 'lens_presets_v1';
 
 class LensPresetStore {
+  /// No auto-created default here (there used to be a silent "135mm, full
+  /// frame" fallback) — with per-lens FOV-bucketed databases now
+  /// downloaded on demand, a made-up default would either point at the
+  /// wrong bucket for the user's actual lens or need its database
+  /// downloaded for no reason. An empty list is a real, valid state the
+  /// UI handles directly (see SolveScreen's empty-profiles reminder)
+  /// rather than something to paper over here.
   static Future<List<LensPreset>> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_prefsKey);
-    if (raw == null || raw.isEmpty) {
-      final defaults = [
-        LensPreset(
-          name: '135mm, full frame',
-          focalLengthMm: 135,
-          sensorWidthMm: 36.0,
-          sensorHeightMm: 24.0,
-        ),
-      ];
-      await save(defaults);
-      return defaults;
-    }
+    if (raw == null || raw.isEmpty) return [];
     return raw
         .map((s) => LensPreset.fromJson(jsonDecode(s) as Map<String, dynamic>))
         .toList();

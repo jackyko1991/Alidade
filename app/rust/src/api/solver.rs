@@ -11,7 +11,7 @@
 //! orientation — see `normalize_orientation` below).
 
 use std::io::Cursor;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use flutter_rust_bridge::frb;
 use image::{GenericImageView, ImageDecoder, ImageFormat, ImageReader};
@@ -19,7 +19,14 @@ use tetra3::{
     extract_centroids_from_image, CentroidExtractionConfig, SolveConfig, SolverDatabase,
 };
 
-static DB: OnceLock<SolverDatabase> = OnceLock::new();
+// `RwLock<Option<_>>`, not `OnceLock`: with per-lens FOV-bucketed
+// databases now downloaded on demand (see the Dart-side `DbManager`),
+// which database should be active changes at runtime as the user
+// switches lenses within a single app session — `OnceLock::set` only
+// ever accepts the *first* call and silently errors on every call after
+// that, which made switching lenses a no-op instead of loading the right
+// database.
+static DB: RwLock<Option<SolverDatabase>> = RwLock::new(None);
 
 /// Bakes the image's EXIF orientation into its pixel data and re-encodes as
 /// JPEG, so every consumer (Rust solving, Flutter display, history
@@ -58,17 +65,21 @@ pub fn normalize_orientation(image_bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Load the star-catalog pattern database (bundled as a Flutter asset and
-/// passed here as raw bytes) once at app startup.
+/// Loads a star-catalog pattern database — the bundled default at app
+/// startup, or a downloaded FOV-bucketed one whenever the selected lens
+/// changes which bucket is needed. Replaces whatever was previously
+/// loaded (see the `DB` doc comment for why that matters).
 #[frb(sync)]
 pub fn load_database(bytes: Vec<u8>) -> Result<(), String> {
     let db = SolverDatabase::from_bytes(&bytes).map_err(|e| e.to_string())?;
-    DB.set(db).map_err(|_| "database already loaded".to_string())
+    let mut guard = DB.write().map_err(|e| e.to_string())?;
+    *guard = Some(db);
+    Ok(())
 }
 
 #[frb(sync)]
 pub fn is_database_loaded() -> bool {
-    DB.get().is_some()
+    DB.read().map(|g| g.is_some()).unwrap_or(false)
 }
 
 pub struct SolveOutcome {
@@ -116,7 +127,11 @@ fn failure(msg: impl Into<String>) -> SolveOutcome {
 /// Not marked `#[frb(sync)]`: flutter_rust_bridge runs this on a worker
 /// thread automatically, keeping the UI isolate free during the solve.
 pub fn solve_image(image_bytes: Vec<u8>, fov_deg: f32, fov_error_deg: f32) -> SolveOutcome {
-    let Some(db) = DB.get() else {
+    let guard = match DB.read() {
+        Ok(g) => g,
+        Err(e) => return failure(format!("database lock poisoned: {e}")),
+    };
+    let Some(db) = guard.as_ref() else {
         return failure("database not loaded — call load_database first");
     };
 

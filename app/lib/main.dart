@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 
 import 'about_screen.dart';
 import 'constellation_lines.dart';
+import 'db_manager.dart';
+import 'db_manifest.dart';
 import 'history.dart';
 import 'history_page.dart';
 import 'lens_picker.dart';
@@ -20,13 +22,9 @@ import 'star_names.dart';
 import 'star_overlay.dart';
 import 'wcs.dart';
 
-const _dbAssetPath = 'assets/db/alidade_135mm.bin';
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
-  final dbBytes = await rootBundle.load(_dbAssetPath);
-  solver.loadDatabase(bytes: dbBytes.buffer.asUint8List());
   await StarNames.load();
   await ObjectNameCatalog.load();
   await NightMode.load();
@@ -164,9 +162,14 @@ class _SolveScreenState extends State<SolveScreen> {
   bool _showMatchedCircles = true;
   bool _showNamedStars = true;
   bool _showConstellationLines = true;
-  StarLabelStyle _starLabelStyle = StarLabelStyle.popularNames;
+  StarLabelStyle _starLabelStyle = StarLabelStyle.catalogDesignations;
   int? _lastImageWidth;
   int? _lastImageHeight;
+  // Which bucket's bytes are currently loaded into the Rust solver, so a
+  // solve for the same lens twice in a row doesn't reload+reparse a
+  // multi-MB database it already has. Cleared whenever a different lens
+  // (mapping to a different bucket) is selected or solved with.
+  String? _loadedBucketId;
 
   @override
   void initState() {
@@ -177,10 +180,48 @@ class _SolveScreenState extends State<SolveScreen> {
 
   Future<void> _loadLensPresets() async {
     final presets = await LensPresetStore.load();
+    if (!mounted) return;
     setState(() {
       _lensPresets = presets;
-      _selectedLens = presets.first;
+      _selectedLens = presets.isNotEmpty ? presets.first : null;
     });
+    // No lens configured yet — true on a genuine first launch, but also
+    // whenever the user has deleted every profile since. Either way,
+    // remind them rather than silently leaving Solve disabled with no
+    // explanation: there's no auto-created default to fall back on (see
+    // LensPresetStore.load), since with per-lens databases now downloaded
+    // on demand, a made-up default would point at the wrong bucket for
+    // whatever lens they actually shoot with.
+    if (presets.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showNoLensReminder();
+      });
+    }
+  }
+
+  Future<void> _showNoLensReminder() async {
+    final openSettings = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add a lens to get started'),
+        content: const Text(
+          'Alidade solves using whichever lens/FOV profile is active. Add '
+          'your camera + lens (or enter a FOV directly) in Settings before '
+          'importing a photo to solve.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+    if (openSettings == true && mounted) await _openAdvancedSettings();
   }
 
   Future<void> _loadStarLabelStyle() async {
@@ -275,29 +316,38 @@ class _SolveScreenState extends State<SolveScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Settings'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) {
-            // Explicit rather than trusting theme-derived roles (see
-            // history_page.dart's build() for why): those didn't reliably
-            // cascade to this dialog's field borders/subtitle text either.
-            final night = NightMode.enabled.value;
-            final subtitleStyle = night ? TextStyle(color: dimNightModeColor) : null;
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Lens / FOV override', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                if (_selectedLens != null)
-                  LensPickerField(
-                    presets: _lensPresets,
-                    selected: _selectedLens!,
-                    onSelected: (p) => setDialogState(() => _selectedLens = p),
-                    onPresetsChanged: (presets) {
-                      setDialogState(() => _lensPresets = presets);
-                      LensPresetStore.save(presets);
-                    },
-                  ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: StatefulBuilder(
+              builder: (context, setDialogState) {
+                // Explicit rather than trusting theme-derived roles (see
+                // history_page.dart's build() for why): those didn't
+                // reliably cascade to this dialog's field borders/subtitle
+                // text either.
+                final night = NightMode.enabled.value;
+                final subtitleStyle = night ? TextStyle(color: dimNightModeColor) : null;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Lens / FOV profiles', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    LensProfileList(
+                      presets: _lensPresets,
+                      selected: _selectedLens,
+                      onSelected: (p) => setDialogState(() => _selectedLens = p),
+                        onPresetsChanged: (presets) {
+                          // Reclaiming a removed preset's now-unused database
+                          // storage is handled inside LensProfileList itself
+                          // (see its _remove) — that's also where the
+                          // download-status cache lives, so the delete and
+                          // the cache invalidation that must follow it stay
+                          // in the same place.
+                          setDialogState(() => _lensPresets = presets);
+                          LensPresetStore.save(presets);
+                        },
+                      ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _fovErrorController,
@@ -310,6 +360,11 @@ class _SolveScreenState extends State<SolveScreen> {
                     enabledBorder: night
                         ? OutlineInputBorder(borderSide: BorderSide(color: dimNightModeColor))
                         : null,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.help_outline, size: 20),
+                      tooltip: 'What is this?',
+                      onPressed: _showFovErrorHelp,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -345,7 +400,9 @@ class _SolveScreenState extends State<SolveScreen> {
                 ),
               ],
             );
-          },
+              },
+            ),
+          ),
         ),
         actions: [
           TextButton(
@@ -356,6 +413,27 @@ class _SolveScreenState extends State<SolveScreen> {
       ),
     );
     setState(() {});
+  }
+
+  /// Loads whichever bucket [bucket] is into the Rust solver, downloading
+  /// it first (with a progress dialog) if it isn't cached locally yet.
+  /// Returns false if the user cancels or the download fails, in which
+  /// case the caller should not attempt to solve.
+  Future<bool> _ensureDbReady(DbBucket bucket) async {
+    if (_loadedBucketId == bucket.id) return true;
+    if (!await DbManager.isDownloaded(bucket)) {
+      if (!mounted) return false;
+      final downloaded = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _DownloadDialog(bucket: bucket),
+      );
+      if (downloaded != true) return false;
+    }
+    final bytes = await DbManager.readBytes(bucket);
+    solver.loadDatabase(bytes: bytes);
+    _loadedBucketId = bucket.id;
+    return true;
   }
 
   Future<void> _solve() async {
@@ -379,6 +457,9 @@ class _SolveScreenState extends State<SolveScreen> {
     frame.image.dispose();
     final isPortrait = imageHeight > imageWidth;
     final fovDeg = lens.fovDegForImage(isPortrait: isPortrait);
+
+    final ready = await _ensureDbReady(bucketForFovDeg(fovDeg));
+    if (!ready || !mounted) return;
 
     setState(() => _solving = true);
     try {
@@ -484,6 +565,31 @@ class _SolveScreenState extends State<SolveScreen> {
     await _reprojectNamedStars();
   }
 
+  Future<void> _showFovErrorHelp() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('FOV error'),
+        content: const Text(
+          'How far off the selected lens\'s FOV estimate is allowed to be '
+          'before the solve gives up — the solver searches within this '
+          'window rather than requiring an exact match.\n\n'
+          'Too narrow and a slightly-off estimate (wrong sensor crop, '
+          'unusual aspect ratio, ...) can miss the true value entirely. '
+          'Too wide and the search has more candidates to rule out, so it '
+          'takes longer. 8° is a generous default that works well for '
+          'most lenses without needing to be tuned.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showOverlayHelp() async {
     final night = NightMode.enabled.value;
     final matchedColor = night ? nightModeColor : const Color(0xFF33E07A);
@@ -556,7 +662,7 @@ class _SolveScreenState extends State<SolveScreen> {
           padding: const EdgeInsets.all(8.0),
           child: Image.asset('assets/icon/alidade_icon.png'),
         ),
-        title: const Text('Alidade - Plate Solver'),
+        title: const Text('Alidade'),
         actions: [
           ValueListenableBuilder<bool>(
             valueListenable: NightMode.enabled,
@@ -626,10 +732,22 @@ class _SolveScreenState extends State<SolveScreen> {
               icon: const Icon(Icons.photo_library_outlined),
               label: const Text('Import from gallery'),
             ),
-            const SizedBox(height: 16),
 
-            // 3. Nothing required here — FOV/lens defaults just work (see
-            // the "Advanced" button in the app bar for the override).
+            // 3. Which lens/FOV to solve with — only shown once there's an
+            // actual choice to make (2+ profiles configured); each maps to
+            // its own downloadable database, so which one is selected
+            // matters for both solve speed and whether a download prompt
+            // appears. Add more via the Settings gear.
+            if (_selectedLens != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: LensQuickSelector(
+                  presets: _lensPresets,
+                  selected: _selectedLens!,
+                  onSelected: (p) => setState(() => _selectedLens = p),
+                ),
+              ),
+            const SizedBox(height: 16),
 
             // 4. Solve.
             FilledButton.icon(
@@ -703,6 +821,7 @@ class _SolveScreenState extends State<SolveScreen> {
                 result: result,
                 nameController: _currentHistoryId != null ? _resultNameController : null,
                 onNameChanged: _onResultNameChanged,
+                onOpenSettings: _openAdvancedSettings,
               ),
             const SizedBox(height: 24),
             Row(
@@ -727,6 +846,80 @@ class _SolveScreenState extends State<SolveScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Blocking progress dialog shown when a solve needs a bucket that isn't
+/// downloaded yet. Starts the download immediately; pops `true` on
+/// success, `false` if the user cancels, and offers Retry in place on
+/// failure rather than popping (so a flaky connection doesn't force the
+/// user back through the whole "tap Solve" flow again).
+class _DownloadDialog extends StatefulWidget {
+  const _DownloadDialog({required this.bucket});
+
+  final DbBucket bucket;
+
+  @override
+  State<_DownloadDialog> createState() => _DownloadDialogState();
+}
+
+class _DownloadDialogState extends State<_DownloadDialog> {
+  double? _progress = 0;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+    setState(() {
+      _error = null;
+      _progress = 0;
+    });
+    try {
+      await DbManager.download(
+        widget.bucket,
+        onProgress: (received, total) {
+          if (mounted && total > 0) setState(() => _progress = received / total);
+        },
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = '$e';
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Downloading solver database'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('${widget.bucket.focalLengthRange} lenses · ${widget.bucket.sizeLabel}'),
+          const SizedBox(height: 16),
+          if (_error != null)
+            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))
+          else
+            LinearProgressIndicator(value: _progress),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        if (_error != null) FilledButton(onPressed: _start, child: const Text('Retry')),
+      ],
     );
   }
 }
@@ -831,11 +1024,13 @@ class _ResultCard extends StatelessWidget {
     required this.result,
     required this.nameController,
     required this.onNameChanged,
+    required this.onOpenSettings,
   });
 
   final solver.SolveOutcome result;
   final TextEditingController? nameController;
   final ValueChanged<String> onNameChanged;
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -844,7 +1039,28 @@ class _ResultCard extends StatelessWidget {
         color: Theme.of(context).colorScheme.errorContainer,
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text(result.error ?? 'Solve failed'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(result.error ?? 'Solve failed'),
+              const SizedBox(height: 8),
+              // The most common real-world cause of a failed solve is a
+              // wrong FOV/lens estimate (too far off for the search
+              // window to bracket the true value) rather than a bad
+              // photo — surface the fix, not just the failure.
+              const Text(
+                'If this keeps happening, double-check the lens/FOV in '
+                'Settings — a wrong estimate is the most common cause.',
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: onOpenSettings,
+                icon: const Icon(Icons.tune),
+                label: const Text('Open Settings'),
+              ),
+            ],
+          ),
         ),
       );
     }

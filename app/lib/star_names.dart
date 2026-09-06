@@ -18,9 +18,9 @@ class StarLabelStylePref {
   static Future<StarLabelStyle> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_styleKey);
-    return raw == 'catalogDesignations'
-        ? StarLabelStyle.catalogDesignations
-        : StarLabelStyle.popularNames; // default
+    return raw == 'popularNames'
+        ? StarLabelStyle.popularNames
+        : StarLabelStyle.catalogDesignations; // default
   }
 
   static Future<void> save(StarLabelStyle style) async {

@@ -22,6 +22,7 @@ target/
 # from an interactive debugging session — none of it belongs in version
 # control (the solver databases alone run into the hundreds of MB).
 spike/data/*.bin
+spike/data/release_dbs/
 spike/data/test/
 spike/data/scratch/
 spike/data/catalogs/*.raw.json

@@ -14,7 +14,7 @@
 
 use alidade_core::api::solver;
 
-const DB_PATH: &str = "../assets/db/alidade_135mm.bin";
+const DB_PATH: &str = "tests/fixtures/db_fov16.bin";
 
 fn ensure_database_loaded() {
     let bytes = std::fs::read(DB_PATH)
