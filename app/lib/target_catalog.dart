@@ -16,6 +16,13 @@ import 'sky_target.dart';
 class TargetCatalog {
   TargetCatalog._(this._targets) : _index = _TargetSearchIndex(_targets);
 
+  /// Builds a catalog directly from [targets], bypassing asset loading
+  /// entirely — the injection seam `TargetPickerPage.catalog` exists for,
+  /// so a widget test can pump a small fixed set of targets instead of
+  /// decoding the real ~1.5MB of bundled JSON.
+  factory TargetCatalog.debugWithTargets(List<SkyTarget> targets) =>
+      TargetCatalog._(targets);
+
   final List<SkyTarget> _targets;
   final _TargetSearchIndex _index;
 
