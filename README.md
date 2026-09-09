@@ -44,6 +44,12 @@ once per page load, and solve history isn't saved between sessions either.
   Bayer catalog designations (your choice), projected through the solved
   WCS onto the image.
 - **Constellation lines**, projected the same way.
+- **Pre-solve target picker.** Search ~15,000 named stars, NGC/IC/Messier/
+  Caldwell deep-sky objects, bright double stars, and the Sun/Moon/planets
+  (computed on-device, no network) by name or catalog id. Pick one before
+  solving and, if it's in frame, a red star marks it on the image; if it
+  isn't, a red arrow at the edge points the way. Purely a display aid — the
+  solve itself stays blind either way.
 - **Reverse-lookup auto-naming.** After a successful solve, Alidade
   suggests a name for what you're looking at (Messier catalog).
 - **Solve history**, with a thumbnail (matched stars baked in), full
@@ -155,3 +161,10 @@ and summarized here:
 | Star designations | Yale Bright Star Catalog (BSC5, Hoffleit & Warren 1991) | Public domain |
 | Messier object lookup | [messier-registry](https://github.com/wdelenclos/messier-registry) | MIT |
 | Constellation lines | [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
+| Deep-sky objects (target picker) | [OpenNGC](https://github.com/mattiaverga/OpenNGC) by Mattia Verga | CC BY-SA 4.0 |
+| Double stars (target picker) | Washington Double Star Catalog (USNO) | Public domain |
+| Planet/Moon positions (target picker) | JPL low-precision elements + Meeus algorithms | — |
+
+`app/assets/deepsky.json` (OpenNGC) is CC BY-SA 4.0, a stricter,
+share-alike license than the rest of this MIT-licensed repo — see
+[LICENSE](LICENSE) for the full note.
