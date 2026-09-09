@@ -31,11 +31,17 @@ class StarLabelStylePref {
 
 /// A star with a label to draw, regardless of which catalog it came from.
 class NamedStar {
-  NamedStar({required this.name, required this.raDeg, required this.decDeg});
+  NamedStar({
+    required this.name,
+    required this.raDeg,
+    required this.decDeg,
+    this.mag,
+  });
 
   final String name;
   final double raDeg;
   final double decDeg;
+  final double? mag;
 
   factory NamedStar.fromPopularNameJson(Map<String, dynamic> json) => NamedStar(
     name: json['name'] as String,
@@ -47,6 +53,7 @@ class NamedStar {
     name: json['label'] as String,
     raDeg: (json['ra_deg'] as num).toDouble(),
     decDeg: (json['dec_deg'] as num).toDouble(),
+    mag: (json['mag'] as num?)?.toDouble(),
   );
 }
 
