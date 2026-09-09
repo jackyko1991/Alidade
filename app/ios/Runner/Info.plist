@@ -66,5 +66,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Alidade uses your location to show a chosen target's hour angle and time to meridian flip. Solving itself never uses your location.</string>
 </dict>
 </plist>

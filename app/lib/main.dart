@@ -12,6 +12,7 @@ import 'history.dart';
 import 'history_page.dart';
 import 'lens_picker.dart';
 import 'lens_preset.dart';
+import 'meridian_status.dart';
 import 'night_mode.dart';
 import 'object_names.dart';
 import 'rust_bridge/rust_bridge.dart' as solver;
@@ -804,6 +805,32 @@ class _SolveScreenState extends State<SolveScreen> {
     );
   }
 
+  /// Opens the preview image full screen with pinch-to-zoom — [result]
+  /// carries over the same overlay markers/toggles when there's a
+  /// successful solve to show them for; null shows the plain photo.
+  Future<void> _openFullScreenImage({
+    required Uint8List bytes,
+    required SolveOutcome? result,
+  }) {
+    return Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => _FullScreenImageViewer(
+          imageBytes: bytes,
+          result: result,
+          showMatchedCircles: _showMatchedCircles,
+          showNamedStars: _showNamedStars,
+          showConstellationLines: _showConstellationLines,
+          showTarget: _showTarget,
+          namedStars: _namedStars,
+          constellationLines: _constellationLines,
+          targetMarker: _targetMarker,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final result = _result;
@@ -862,37 +889,44 @@ class _SolveScreenState extends State<SolveScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // 1. Image preview.
+            // 1. Image preview — tap to open full screen (pinch-zoom), the
+            // same overlay markers/toggles carried over.
             if (bytes != null && result != null && result.success)
-              ValueListenableBuilder<bool>(
-                valueListenable: NightMode.enabled,
-                builder: (context, night, _) => StarOverlayImage(
-                  imageBytes: bytes,
-                  matchedX: _showMatchedCircles
-                      ? result.matchedStarX
-                      : const [],
-                  matchedY: _showMatchedCircles
-                      ? result.matchedStarY
-                      : const [],
-                  namedStars: _showNamedStars ? _namedStars : const [],
-                  constellationLines: _showConstellationLines
-                      ? _constellationLines
-                      : const [],
-                  target: _showTarget ? _targetMarker : null,
-                  overrideColor: night ? nightModeColor : null,
-                  height: 320,
+              GestureDetector(
+                onTap: () => _openFullScreenImage(bytes: bytes, result: result),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: NightMode.enabled,
+                  builder: (context, night, _) => StarOverlayImage(
+                    imageBytes: bytes,
+                    matchedX: _showMatchedCircles
+                        ? result.matchedStarX
+                        : const [],
+                    matchedY: _showMatchedCircles
+                        ? result.matchedStarY
+                        : const [],
+                    namedStars: _showNamedStars ? _namedStars : const [],
+                    constellationLines: _showConstellationLines
+                        ? _constellationLines
+                        : const [],
+                    target: _showTarget ? _targetMarker : null,
+                    overrideColor: night ? nightModeColor : null,
+                    height: 320,
+                  ),
                 ),
               )
             else if (bytes != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  height: 320,
-                  width: double.infinity,
-                  color: Colors.black,
-                  // contain, not cover: a portrait photo shouldn't be
-                  // cropped down to a thin strip matching the box's width.
-                  child: Image.memory(bytes, fit: BoxFit.contain),
+              GestureDetector(
+                onTap: () => _openFullScreenImage(bytes: bytes, result: null),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 320,
+                    width: double.infinity,
+                    color: Colors.black,
+                    // contain, not cover: a portrait photo shouldn't be
+                    // cropped down to a thin strip matching the box's width.
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                 ),
               )
             else
@@ -940,6 +974,11 @@ class _SolveScreenState extends State<SolveScreen> {
                 onClear: _clearTarget,
               ),
             ),
+            if (_target != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 4),
+                child: MeridianStatusLine(target: _target),
+              ),
             const SizedBox(height: 16),
 
             // 4. Solve.
@@ -1049,6 +1088,7 @@ class _SolveScreenState extends State<SolveScreen> {
                 onNameChanged: _onResultNameChanged,
                 onOpenSettings: _openAdvancedSettings,
                 target: _targetMarker,
+                skyTarget: _target,
               ),
             const SizedBox(height: 24),
             Row(
@@ -1156,6 +1196,79 @@ class _DownloadDialogState extends State<_DownloadDialog> {
         if (_error != null)
           FilledButton(onPressed: _start, child: const Text('Retry')),
       ],
+    );
+  }
+}
+
+/// Full-screen, pinch-to-zoom view of the preview image — tapping the
+/// small preview opens this rather than being stuck at the fixed 320dp
+/// preview height, with the same overlay markers/toggle state carried
+/// over from the main screen (a screenshot-worthy close look at exactly
+/// what's already on screen, not a separate re-rendering).
+class _FullScreenImageViewer extends StatelessWidget {
+  const _FullScreenImageViewer({
+    required this.imageBytes,
+    required this.result,
+    required this.showMatchedCircles,
+    required this.showNamedStars,
+    required this.showConstellationLines,
+    required this.showTarget,
+    required this.namedStars,
+    required this.constellationLines,
+    required this.targetMarker,
+  });
+
+  final Uint8List imageBytes;
+  final SolveOutcome? result;
+  final bool showMatchedCircles;
+  final bool showNamedStars;
+  final bool showConstellationLines;
+  final bool showTarget;
+  final List<NamedStarPosition> namedStars;
+  final List<List<Offset?>> constellationLines;
+  final TargetMarker? targetMarker;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = this.result;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          maxScale: 6,
+          child: result != null && result.success
+              ? ValueListenableBuilder<bool>(
+                  valueListenable: NightMode.enabled,
+                  builder: (context, night, _) => StarOverlayImage(
+                    imageBytes: imageBytes,
+                    matchedX: showMatchedCircles
+                        ? result.matchedStarX
+                        : const [],
+                    matchedY: showMatchedCircles
+                        ? result.matchedStarY
+                        : const [],
+                    namedStars: showNamedStars ? namedStars : const [],
+                    constellationLines: showConstellationLines
+                        ? constellationLines
+                        : const [],
+                    target: showTarget ? targetMarker : null,
+                    overrideColor: night ? nightModeColor : null,
+                    height: screenHeight,
+                  ),
+                )
+              : Image.memory(
+                  imageBytes,
+                  fit: BoxFit.contain,
+                  height: screenHeight,
+                ),
+        ),
+      ),
     );
   }
 }
@@ -1290,12 +1403,14 @@ class _ResultCard extends StatelessWidget {
     required this.onNameChanged,
     required this.onOpenSettings,
     this.target,
+    this.skyTarget,
   });
 
   final SolveOutcome result;
   final TextEditingController? nameController;
   final ValueChanged<String> onNameChanged;
   final VoidCallback onOpenSettings;
+  final SkyTarget? skyTarget;
   final TargetMarker? target;
 
   @override
@@ -1381,6 +1496,7 @@ class _ResultCard extends StatelessWidget {
                 _targetOffsetLine(target!),
                 style: const TextStyle(fontFamily: 'monospace'),
               ),
+            if (skyTarget != null) MeridianStatusLine(target: skyTarget),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () {

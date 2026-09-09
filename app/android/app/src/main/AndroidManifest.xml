@@ -4,6 +4,10 @@
          network request fails at DNS resolution ("Failed host lookup"),
          which is easy to mistake for a real connectivity problem. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Coarse only: the target picker's hour-angle / meridian-flip display
+         needs the observer's longitude (and latitude, for a future horizon
+         check), not a precise fix. See observer_location.dart. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="Alidade"
         android:name="${applicationName}"
