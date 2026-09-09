@@ -91,10 +91,27 @@ class _MeridianStatusLineState extends State<MeridianStatusLine> {
       );
     }
 
-    final utc = DateTime.now().toUtc();
-    final ha = hourAngleDeg(target.raDeg, utc, result.location!.longitudeDeg);
+    final now = DateTime.now();
+    final ha = hourAngleDeg(
+      target.raDeg,
+      now.toUtc(),
+      result.location!.longitudeDeg,
+    );
     final flip = timeToMeridian(ha);
-    return Text('${_formatHourAngle(ha)} · ${_formatFlip(flip)}', style: style);
+    // now.add(flip) works whichever way flip points: for a target still
+    // approaching the meridian it lands on the upcoming transit; for one
+    // already past, flip is negative and it lands back on the transit
+    // that already happened - the same instant "past meridian ... ago"
+    // is counting from.
+    final meridianTime = now.add(flip);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('${_formatHourAngle(ha)} · ${_formatFlip(flip)}', style: style),
+        Text('meridian at ${_formatClockTime(meridianTime)}', style: style),
+      ],
+    );
   }
 }
 
@@ -109,13 +126,17 @@ String _unavailableMessage(LocationUnavailableReason reason) =>
       LocationUnavailableReason.error => 'Tap to retry — location unavailable',
     };
 
-/// "HA -1h23m" / "HA +0h05m".
+/// "HA 1h23m" — magnitude only. Hour Angle is signed by definition
+/// (negative before meridian transit, positive after), but showing that
+/// sign here doubled up confusingly with the adjacent "flip in"/"past
+/// meridian ... ago" wording already saying which side of the meridian
+/// the target is on - so this always reads as a positive count of how far
+/// from the meridian it is, in either direction.
 String _formatHourAngle(double haDeg) {
   final totalMinutes = (haDeg.abs() / 15 * 60).round();
   final h = totalMinutes ~/ 60;
   final m = totalMinutes % 60;
-  final sign = haDeg < 0 ? '-' : '+';
-  return 'HA $sign${h}h${m.toString().padLeft(2, '0')}m';
+  return 'HA ${h}h${m.toString().padLeft(2, '0')}m';
 }
 
 /// "flip in 2h37m" while still approaching the meridian, "past meridian
@@ -128,4 +149,14 @@ String _formatFlip(Duration untilFlip) {
   final m = magnitude.inMinutes % 60;
   final text = '${h}h${m.toString().padLeft(2, '0')}m';
   return past ? 'past meridian $text ago' : 'flip in $text';
+}
+
+/// "23:14 BST" / "23:14 GMT+01:00" — the meridian crossing's actual
+/// wall-clock local time, labeled with the device's own time zone name so
+/// it reads correctly across DST changes (BST vs GMT, CEST vs CET, ...)
+/// without this app needing its own IANA time zone database.
+String _formatClockTime(DateTime localTime) {
+  final h = localTime.hour.toString().padLeft(2, '0');
+  final m = localTime.minute.toString().padLeft(2, '0');
+  return '$h:$m ${localTime.timeZoneName}';
 }

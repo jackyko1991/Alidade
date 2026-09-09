@@ -45,9 +45,10 @@ class ObserverLocationService {
   static DateTime? _cachedAt;
 
   /// A coarse fix is plenty for sidereal-time math (a few km of error is
-  /// well under a second of time), so this deliberately asks for low
+  /// well under a second of time), so this deliberately asks for reduced
   /// accuracy — faster to obtain and a smaller privacy footprint than a
-  /// precise GPS fix.
+  /// precise GPS fix. Prefers a cached fix (see [_requestLocation]) over
+  /// waiting on a live one.
   static Future<ObserverLocationResult> load({
     bool forceRefresh = false,
   }) async {
@@ -88,10 +89,25 @@ class ObserverLocationService {
         );
       }
 
+      // A cached fix (from this or any other app - Maps, Weather, ...) is
+      // usually available instantly and is more than accurate enough for
+      // sidereal-time math; only fall back to requesting a live fix (which
+      // can take a while indoors/without a GPS lock, and can time out
+      // entirely before the OS delivers one) when nothing is cached yet.
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached != null) {
+        return ObserverLocationResult.available(
+          ObserverLocation(
+            latitudeDeg: cached.latitude,
+            longitudeDeg: cached.longitude,
+          ),
+        );
+      }
+
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-          timeLimit: Duration(seconds: 15),
+          accuracy: LocationAccuracy.reduced,
+          timeLimit: Duration(seconds: 30),
         ),
       );
       return ObserverLocationResult.available(
