@@ -153,6 +153,15 @@ def magnitude(row):
     return None
 
 
+def pretty_designation(name):
+    """"NGC0224" -> "NGC 224": drops OpenNGC's own zero-padding so this
+    reads (and, more importantly, squash-matches a typed search on) the
+    same "NGC 224"/"ngc224" convention as a plain, non-cross-referenced
+    NGC/IC row's own id (see the `elif re.match` branch below)."""
+    m = re.match(r"^(NGC|IC)(\d+)$", name)
+    return f"{m.group(1)} {int(m.group(2))}" if m else name
+
+
 def aliases_for(row):
     out = []
     identifiers = row.get("Identifiers", "").strip()
@@ -227,7 +236,7 @@ def main():
         if row is None:
             continue  # M40's a genuine gap-check case; see the printed summary
         object_id = f"M{messier_num}"
-        aliases = [row["Name"]] + aliases_for(row)
+        aliases = [pretty_designation(row["Name"])] + aliases_for(row)
         display = messier_name_by_number.get(messier_num) or display_name(row)
         out.append(row_entry(row, object_id, display, aliases))
         seen_ids.add(object_id)
@@ -238,7 +247,7 @@ def main():
         object_id = f"C{caldwell_num}"
         if row is None or object_id in seen_ids:
             continue  # already covered above (no object is both M and C)
-        aliases = [designation] + aliases_for(row)
+        aliases = [pretty_designation(designation)] + aliases_for(row)
         out.append(row_entry(row, object_id, display_name(row), aliases))
         seen_ids.add(object_id)
         consumed_names.add(designation)
