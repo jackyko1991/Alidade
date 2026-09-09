@@ -69,6 +69,7 @@ class HistoryStore {
     required double solveTimeMs,
     required List<double> matchedStarX,
     required List<double> matchedStarY,
+    Map<String, dynamic>? target,
   }) async {
     final dir = await _historyDir();
     final id = DateTime.now().microsecondsSinceEpoch.toString();
@@ -104,6 +105,7 @@ class HistoryStore {
         solveTimeMs: solveTimeMs,
         matchedStarX: matchedStarX,
         matchedStarY: matchedStarY,
+        target: target,
       ),
     );
     await _saveManifest(entries);
@@ -114,6 +116,18 @@ class HistoryStore {
     final entries = await load();
     for (final e in entries) {
       if (e.id == id) e.name = newName;
+    }
+    await _saveManifest(entries);
+    return entries;
+  }
+
+  static Future<List<HistoryEntry>> setTarget(
+    String id,
+    Map<String, dynamic>? target,
+  ) async {
+    final entries = await load();
+    for (final e in entries) {
+      if (e.id == id) e.target = target;
     }
     await _saveManifest(entries);
     return entries;
