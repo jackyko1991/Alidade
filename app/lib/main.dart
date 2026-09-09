@@ -12,12 +12,15 @@ import 'history.dart';
 import 'history_page.dart';
 import 'lens_picker.dart';
 import 'lens_preset.dart';
+import 'meridian_status.dart';
 import 'night_mode.dart';
 import 'object_names.dart';
 import 'rust_bridge/rust_bridge.dart' as solver;
+import 'sky_target.dart';
 import 'solve_outcome.dart';
 import 'star_names.dart';
 import 'star_overlay.dart';
+import 'target_picker.dart';
 import 'wcs.dart';
 
 Future<void> main() async {
@@ -54,19 +57,20 @@ class AlidadeApp extends StatelessWidget {
         // of relying on theme inheritance; this scheme override is kept as
         // a reasonable fallback for anything not explicitly wired up yet.
         final dimNightColor = dimNightModeColor;
-        final nightScheme = ColorScheme.fromSeed(
-          seedColor: nightModeColor,
-          brightness: Brightness.dark,
-        ).copyWith(
-          primary: nightModeColor,
-          secondary: nightModeColor,
-          surface: Colors.black,
-          onSurface: nightModeColor,
-          onSurfaceVariant: dimNightColor,
-          outline: dimNightColor,
-          outlineVariant: dimNightColor,
-          error: nightModeColor,
-        );
+        final nightScheme =
+            ColorScheme.fromSeed(
+              seedColor: nightModeColor,
+              brightness: Brightness.dark,
+            ).copyWith(
+              primary: nightModeColor,
+              secondary: nightModeColor,
+              surface: Colors.black,
+              onSurface: nightModeColor,
+              onSurfaceVariant: dimNightColor,
+              outline: dimNightColor,
+              outlineVariant: dimNightColor,
+              error: nightModeColor,
+            );
         final theme = night
             ? ThemeData(
                 brightness: Brightness.dark,
@@ -91,18 +95,25 @@ class AlidadeApp extends StatelessWidget {
                   style: FilledButton.styleFrom(
                     backgroundColor: nightModeColor,
                     foregroundColor: Colors.black,
-                    disabledBackgroundColor: nightModeColor.withValues(alpha: 0.3),
+                    disabledBackgroundColor: nightModeColor.withValues(
+                      alpha: 0.3,
+                    ),
                   ),
                 ),
                 checkboxTheme: CheckboxThemeData(
                   fillColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected) ? nightModeColor : null,
+                    (states) => states.contains(WidgetState.selected)
+                        ? nightModeColor
+                        : null,
                   ),
                   side: BorderSide(color: dimNightColor),
                 ),
                 listTileTheme: ListTileThemeData(
                   textColor: nightModeColor,
-                  subtitleTextStyle: TextStyle(color: dimNightColor, fontSize: 12),
+                  subtitleTextStyle: TextStyle(
+                    color: dimNightColor,
+                    fontSize: 12,
+                  ),
                 ),
                 outlinedButtonTheme: OutlinedButtonThemeData(
                   style: OutlinedButton.styleFrom(
@@ -160,6 +171,14 @@ class _SolveScreenState extends State<SolveScreen> {
   bool _showMatchedCircles = true;
   bool _showNamedStars = true;
   bool _showConstellationLines = true;
+  // The object chosen via the pre-solve target picker, if any — purely a
+  // display aid today (see _runSolve): the solve itself stays blind
+  // whether or not a target is set. _targetMarker is the projection of
+  // _target through the current solve's WCS, recomputed by
+  // _recomputeTargetMarker whenever either changes.
+  SkyTarget? _target;
+  TargetMarker? _targetMarker;
+  bool _showTarget = true;
   StarLabelStyle _starLabelStyle = StarLabelStyle.catalogDesignations;
   int? _lastImageWidth;
   int? _lastImageHeight;
@@ -227,18 +246,17 @@ class _SolveScreenState extends State<SolveScreen> {
     setState(() => _starLabelStyle = style);
   }
 
-  /// Re-projects named stars for the current result using whichever catalog
-  /// is currently selected — used both right after solving and when the
-  /// user changes the label-style preference, so switching styles updates
-  /// the overlay immediately without needing to re-solve.
-  Future<void> _reprojectNamedStars() async {
+  /// The current solve's WCS, or null if there's no successful solve to
+  /// project through — shared by [_reprojectNamedStars] and
+  /// [_recomputeTargetMarker] so the two don't construct it separately.
+  SolvedWcs? get _currentWcs {
     final result = _result;
     final width = _lastImageWidth;
     final height = _lastImageHeight;
     if (result == null || !result.success || width == null || height == null) {
-      return;
+      return null;
     }
-    final wcs = SolvedWcs(
+    return SolvedWcs(
       centerRaDeg: result.raDeg,
       centerDecDeg: result.decDeg,
       rollDeg: result.rollDeg,
@@ -246,6 +264,15 @@ class _SolveScreenState extends State<SolveScreen> {
       imageWidthPx: width,
       imageHeightPx: height,
     );
+  }
+
+  /// Re-projects named stars for the current result using whichever catalog
+  /// is currently selected — used both right after solving and when the
+  /// user changes the label-style preference, so switching styles updates
+  /// the overlay immediately without needing to re-solve.
+  Future<void> _reprojectNamedStars() async {
+    final wcs = _currentWcs;
+    if (wcs == null) return;
     final starNames = await StarNames.load();
     // A named star's WCS-projected position and its actual tetra3-matched
     // detection (if any) are two independently-computed estimates of the
@@ -278,6 +305,56 @@ class _SolveScreenState extends State<SolveScreen> {
     });
   }
 
+  /// Projects the chosen target through the current solve — a sibling of
+  /// [_reprojectNamedStars], not folded into it: that method is
+  /// await-heavy and iterates thousands of catalog entries, while this is
+  /// one synchronous projection that must also run right after a bare
+  /// target change (picking or clearing), not just after a solve.
+  void _recomputeTargetMarker() {
+    final wcs = _currentWcs;
+    final target = _target;
+    if (wcs == null || target == null) {
+      if (_targetMarker != null) setState(() => _targetMarker = null);
+      return;
+    }
+    final projection = wcs.projectUnclipped(target.raDeg, target.decDeg);
+    setState(
+      () => _targetMarker = TargetMarker(
+        name: target.displayName,
+        status: projection.status,
+        position: projection.position,
+        direction: projection.direction,
+        separationDeg: projection.separationDeg,
+      ),
+    );
+  }
+
+  /// Persists the current target selection to the in-progress history
+  /// entry, if a solve has already been saved — a no-op otherwise (picking
+  /// a target before solving has nothing to persist to yet; _solve itself
+  /// includes the target when it first creates the entry).
+  void _persistTargetToHistory() {
+    final id = _currentHistoryId;
+    if (id == null) return;
+    HistoryStore.setTarget(id, _target?.toJson());
+  }
+
+  Future<void> _pickTarget() async {
+    final picked = await showTargetPicker(context, initial: _target);
+    if (picked == null || !mounted) return;
+    setState(() => _target = picked);
+    _recomputeTargetMarker();
+    _persistTargetToHistory();
+  }
+
+  void _clearTarget() {
+    setState(() {
+      _target = null;
+      _targetMarker = null;
+    });
+    _persistTargetToHistory();
+  }
+
   @override
   void dispose() {
     _fovErrorController.dispose();
@@ -304,6 +381,10 @@ class _SolveScreenState extends State<SolveScreen> {
       _result = null;
       _namedStars = [];
       _constellationLines = [];
+      // _target itself is kept — framing the same object again shouldn't
+      // require re-picking it — but the marker is stale until the next
+      // solve projects it through the new image's WCS.
+      _targetMarker = null;
       _currentHistoryId = null;
       _resultNameController.clear();
     });
@@ -324,80 +405,100 @@ class _SolveScreenState extends State<SolveScreen> {
                 // reliably cascade to this dialog's field borders/subtitle
                 // text either.
                 final night = NightMode.enabled.value;
-                final subtitleStyle = night ? TextStyle(color: dimNightModeColor) : null;
+                final subtitleStyle = night
+                    ? TextStyle(color: dimNightModeColor)
+                    : null;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Lens / FOV profiles', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Lens / FOV profiles',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 4),
                     LensProfileList(
                       presets: _lensPresets,
                       selected: _selectedLens,
-                      onSelected: (p) => setDialogState(() => _selectedLens = p),
-                        onPresetsChanged: (presets) {
-                          // Reclaiming a removed preset's now-unused database
-                          // storage is handled inside LensProfileList itself
-                          // (see its _remove) — that's also where the
-                          // download-status cache lives, so the delete and
-                          // the cache invalidation that must follow it stay
-                          // in the same place.
-                          setDialogState(() => _lensPresets = presets);
-                          LensPresetStore.save(presets);
-                        },
-                      ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _fovErrorController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  style: night ? const TextStyle(color: nightModeColor) : null,
-                  decoration: InputDecoration(
-                    labelText: 'FOV error (±°)',
-                    labelStyle: subtitleStyle,
-                    border: const OutlineInputBorder(),
-                    enabledBorder: night
-                        ? OutlineInputBorder(borderSide: BorderSide(color: dimNightModeColor))
-                        : null,
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.help_outline, size: 20),
-                      tooltip: 'What is this?',
-                      onPressed: _showFovErrorHelp,
+                      onSelected: (p) =>
+                          setDialogState(() => _selectedLens = p),
+                      onPresetsChanged: (presets) {
+                        // Reclaiming a removed preset's now-unused database
+                        // storage is handled inside LensProfileList itself
+                        // (see its _remove) — that's also where the
+                        // download-status cache lives, so the delete and
+                        // the cache invalidation that must follow it stay
+                        // in the same place.
+                        setDialogState(() => _lensPresets = presets);
+                        LensPresetStore.save(presets);
+                      },
                     ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text('Star labels', style: TextStyle(fontWeight: FontWeight.bold)),
-                RadioGroup<StarLabelStyle>(
-                  groupValue: _starLabelStyle,
-                  onChanged: (style) async {
-                    if (style == null) return;
-                    setDialogState(() => _starLabelStyle = style);
-                    setState(() => _starLabelStyle = style);
-                    await StarLabelStylePref.save(style);
-                    await _reprojectNamedStars();
-                  },
-                  child: Column(
-                    children: [
-                      RadioListTile<StarLabelStyle>(
-                        value: StarLabelStyle.popularNames,
-                        title: const Text('Popular names'),
-                        subtitle: Text('e.g. "Deneb", ~67 famous stars', style: subtitleStyle),
-                        dense: true,
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _fovErrorController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                      RadioListTile<StarLabelStyle>(
-                        value: StarLabelStyle.catalogDesignations,
-                        title: const Text('Catalog designations'),
-                        subtitle: Text(
-                          'e.g. "13 Vul", ~2,500 naked-eye stars',
-                          style: subtitleStyle,
+                      style: night
+                          ? const TextStyle(color: nightModeColor)
+                          : null,
+                      decoration: InputDecoration(
+                        labelText: 'FOV error (±°)',
+                        labelStyle: subtitleStyle,
+                        border: const OutlineInputBorder(),
+                        enabledBorder: night
+                            ? OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: dimNightModeColor,
+                                ),
+                              )
+                            : null,
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.help_outline, size: 20),
+                          tooltip: 'What is this?',
+                          onPressed: _showFovErrorHelp,
                         ),
-                        dense: true,
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            );
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Star labels',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    RadioGroup<StarLabelStyle>(
+                      groupValue: _starLabelStyle,
+                      onChanged: (style) async {
+                        if (style == null) return;
+                        setDialogState(() => _starLabelStyle = style);
+                        setState(() => _starLabelStyle = style);
+                        await StarLabelStylePref.save(style);
+                        await _reprojectNamedStars();
+                      },
+                      child: Column(
+                        children: [
+                          RadioListTile<StarLabelStyle>(
+                            value: StarLabelStyle.popularNames,
+                            title: const Text('Popular names'),
+                            subtitle: Text(
+                              'e.g. "Deneb", ~67 famous stars',
+                              style: subtitleStyle,
+                            ),
+                            dense: true,
+                          ),
+                          RadioListTile<StarLabelStyle>(
+                            value: StarLabelStyle.catalogDesignations,
+                            title: const Text('Catalog designations'),
+                            subtitle: Text(
+                              'e.g. "13 Vul", ~2,500 naked-eye stars',
+                              style: subtitleStyle,
+                            ),
+                            dense: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
               },
             ),
           ),
@@ -434,6 +535,25 @@ class _SolveScreenState extends State<SolveScreen> {
     return true;
   }
 
+  /// The one place the solver is actually invoked. `hint` is deliberately
+  /// unused today: choosing a target before solving is a display-only aid,
+  /// and a solve must behave identically whether or not one is set — this
+  /// is just the seam a future hinted solve (see spike/src/main.rs's
+  /// solve_hint, using tetra3's attitude_hint/hint_uncertainty_rad) plugs
+  /// into, and nowhere else.
+  Future<SolveOutcome> _runSolve({
+    required Uint8List bytes,
+    required double fovDeg,
+    required double fovErrorDeg,
+    SkyTarget? hint,
+  }) {
+    return solver.solveImageBytes(
+      imageBytes: bytes,
+      fovDeg: fovDeg,
+      fovErrorDeg: fovErrorDeg,
+    );
+  }
+
   Future<void> _solve() async {
     final bytes = _imageBytes;
     final lens = _selectedLens;
@@ -461,10 +581,11 @@ class _SolveScreenState extends State<SolveScreen> {
 
     setState(() => _solving = true);
     try {
-      final result = await solver.solveImageBytes(
-        imageBytes: bytes,
+      final result = await _runSolve(
+        bytes: bytes,
         fovDeg: fovDeg,
         fovErrorDeg: fovErrorDeg,
+        hint: _target,
       );
 
       setState(() {
@@ -479,6 +600,7 @@ class _SolveScreenState extends State<SolveScreen> {
       // commonly saturated/filtered out of that set even when clearly in
       // frame).
       await _reprojectNamedStars();
+      _recomputeTargetMarker();
 
       if (result.success) {
         // Suggest a name from the nearest bundled catalog object to the
@@ -509,6 +631,7 @@ class _SolveScreenState extends State<SolveScreen> {
           solveTimeMs: result.solveTimeMs,
           matchedStarX: result.matchedStarX.toList(),
           matchedStarY: result.matchedStarY.toList(),
+          target: _target?.toJson(),
         );
         setState(() {
           _currentHistoryId = entries.first.id;
@@ -551,6 +674,7 @@ class _SolveScreenState extends State<SolveScreen> {
       matchedStarX: entry.matchedStarX,
       matchedStarY: entry.matchedStarY,
     );
+    final entryTarget = entry.target;
     setState(() {
       _imageBytes = bytes;
       _result = result;
@@ -558,8 +682,10 @@ class _SolveScreenState extends State<SolveScreen> {
       _lastImageHeight = entry.imageHeight;
       _currentHistoryId = entry.id;
       _resultNameController.text = entry.name;
+      _target = entryTarget == null ? null : SkyTarget.fromJson(entryTarget);
     });
     await _reprojectNamedStars();
+    _recomputeTargetMarker();
   }
 
   Future<void> _showFovErrorHelp() async {
@@ -591,6 +717,7 @@ class _SolveScreenState extends State<SolveScreen> {
     final night = NightMode.enabled.value;
     final matchedColor = night ? nightModeColor : const Color(0xFF33E07A);
     final namedColor = night ? nightModeColor : const Color(0xFFDBA84E);
+    final targetColor = night ? nightModeColor : targetMarkerColor;
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -604,7 +731,10 @@ class _SolveScreenState extends State<SolveScreen> {
                 children: [
                   Text(
                     'Matched stars',
-                    style: TextStyle(color: matchedColor, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: matchedColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const Text(
                     'Every star the solver actually detected and used to '
@@ -617,7 +747,10 @@ class _SolveScreenState extends State<SolveScreen> {
                 children: [
                   Text(
                     'Star names',
-                    style: TextStyle(color: namedColor, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: namedColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const Text(
                     'Stars from the selected name catalog (Settings → Star '
@@ -635,6 +768,30 @@ class _SolveScreenState extends State<SolveScreen> {
                 'them, since the gap itself shows how far off the idealized '
                 'projection is at that point in the frame.',
               ),
+              const SizedBox(height: 12),
+              Wrap(
+                children: [
+                  Text(
+                    'Target',
+                    style: TextStyle(
+                      color: targetColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Text(
+                    ' — the object you chose before solving. A red star marks '
+                    'it when it\'s inside this frame; when it isn\'t, a red '
+                    'arrow at the frame edge points the way, labeled with how '
+                    'far off you are.',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'In night mode every marker is the same red, so the target '
+                'is told apart by its shape: it\'s the only star-shaped '
+                'marker, and the only one with a dashed ring around it.',
+              ),
             ],
           ),
         ),
@@ -644,6 +801,32 @@ class _SolveScreenState extends State<SolveScreen> {
             child: const Text('Got it'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Opens the preview image full screen with pinch-to-zoom — [result]
+  /// carries over the same overlay markers/toggles when there's a
+  /// successful solve to show them for; null shows the plain photo.
+  Future<void> _openFullScreenImage({
+    required Uint8List bytes,
+    required SolveOutcome? result,
+  }) {
+    return Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => _FullScreenImageViewer(
+          imageBytes: bytes,
+          result: result,
+          showMatchedCircles: _showMatchedCircles,
+          showNamedStars: _showNamedStars,
+          showConstellationLines: _showConstellationLines,
+          showTarget: _showTarget,
+          namedStars: _namedStars,
+          constellationLines: _constellationLines,
+          targetMarker: _targetMarker,
+        ),
       ),
     );
   }
@@ -665,8 +848,13 @@ class _SolveScreenState extends State<SolveScreen> {
                 // just the glyph (transparent background) red instead of
                 // showing colors night mode otherwise avoids everywhere else.
                 ? ColorFiltered(
-                    colorFilter: const ColorFilter.mode(nightModeColor, BlendMode.srcIn),
-                    child: Image.asset('assets/icon/alidade_icon_foreground.png'),
+                    colorFilter: const ColorFilter.mode(
+                      nightModeColor,
+                      BlendMode.srcIn,
+                    ),
+                    child: Image.asset(
+                      'assets/icon/alidade_icon_foreground.png',
+                    ),
                   )
                 : Image.asset('assets/icon/alidade_icon.png'),
           ),
@@ -676,8 +864,12 @@ class _SolveScreenState extends State<SolveScreen> {
           ValueListenableBuilder<bool>(
             valueListenable: NightMode.enabled,
             builder: (context, night, _) => IconButton(
-              icon: Icon(night ? Icons.remove_red_eye : Icons.remove_red_eye_outlined),
-              tooltip: night ? 'Night mode: on (tap for normal colors)' : 'Night mode (preserve night vision)',
+              icon: Icon(
+                night ? Icons.remove_red_eye : Icons.remove_red_eye_outlined,
+              ),
+              tooltip: night
+                  ? 'Night mode: on (tap for normal colors)'
+                  : 'Night mode (preserve night vision)',
               onPressed: NightMode.toggle,
             ),
           ),
@@ -697,30 +889,44 @@ class _SolveScreenState extends State<SolveScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // 1. Image preview.
+            // 1. Image preview — tap to open full screen (pinch-zoom), the
+            // same overlay markers/toggles carried over.
             if (bytes != null && result != null && result.success)
-              ValueListenableBuilder<bool>(
-                valueListenable: NightMode.enabled,
-                builder: (context, night, _) => StarOverlayImage(
-                  imageBytes: bytes,
-                  matchedX: _showMatchedCircles ? result.matchedStarX : const [],
-                  matchedY: _showMatchedCircles ? result.matchedStarY : const [],
-                  namedStars: _showNamedStars ? _namedStars : const [],
-                  constellationLines: _showConstellationLines ? _constellationLines : const [],
-                  overrideColor: night ? nightModeColor : null,
-                  height: 320,
+              GestureDetector(
+                onTap: () => _openFullScreenImage(bytes: bytes, result: result),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: NightMode.enabled,
+                  builder: (context, night, _) => StarOverlayImage(
+                    imageBytes: bytes,
+                    matchedX: _showMatchedCircles
+                        ? result.matchedStarX
+                        : const [],
+                    matchedY: _showMatchedCircles
+                        ? result.matchedStarY
+                        : const [],
+                    namedStars: _showNamedStars ? _namedStars : const [],
+                    constellationLines: _showConstellationLines
+                        ? _constellationLines
+                        : const [],
+                    target: _showTarget ? _targetMarker : null,
+                    overrideColor: night ? nightModeColor : null,
+                    height: 320,
+                  ),
                 ),
               )
             else if (bytes != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  height: 320,
-                  width: double.infinity,
-                  color: Colors.black,
-                  // contain, not cover: a portrait photo shouldn't be
-                  // cropped down to a thin strip matching the box's width.
-                  child: Image.memory(bytes, fit: BoxFit.contain),
+              GestureDetector(
+                onTap: () => _openFullScreenImage(bytes: bytes, result: null),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 320,
+                    width: double.infinity,
+                    color: Colors.black,
+                    // contain, not cover: a portrait photo shouldn't be
+                    // cropped down to a thin strip matching the box's width.
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                 ),
               )
             else
@@ -756,6 +962,23 @@ class _SolveScreenState extends State<SolveScreen> {
                   onSelected: (p) => setState(() => _selectedLens = p),
                 ),
               ),
+
+            // 3b. Optional pre-solve target — purely a display aid (see
+            // _runSolve): choosing one never gates Solve below, and
+            // solving with none selected keeps working exactly as before.
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: TargetSelectorField(
+                target: _target,
+                onPick: _pickTarget,
+                onClear: _clearTarget,
+              ),
+            ),
+            if (_target != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 4),
+                child: MeridianStatusLine(target: _target),
+              ),
             const SizedBox(height: 16),
 
             // 4. Solve.
@@ -779,9 +1002,18 @@ class _SolveScreenState extends State<SolveScreen> {
                 child: ValueListenableBuilder<bool>(
                   valueListenable: NightMode.enabled,
                   builder: (context, night, _) {
-                    final matchedColor = night ? nightModeColor : const Color(0xFF33E07A);
-                    final namedColor = night ? nightModeColor : const Color(0xFFDBA84E);
-                    final lineColor = night ? nightModeColor : const Color(0xFF5C8AC9);
+                    final matchedColor = night
+                        ? nightModeColor
+                        : const Color(0xFF33E07A);
+                    final namedColor = night
+                        ? nightModeColor
+                        : const Color(0xFFDBA84E);
+                    final lineColor = night
+                        ? nightModeColor
+                        : const Color(0xFF5C8AC9);
+                    final targetColor = night
+                        ? nightModeColor
+                        : targetMarkerColor;
                     return Wrap(
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -792,16 +1024,23 @@ class _SolveScreenState extends State<SolveScreen> {
                           color: matchedColor,
                           // Smaller swatch circle: matches the small,
                           // unlabeled circles actually drawn for these.
-                          swatch: _MarkerSwatch.circle(color: matchedColor, radius: 4),
+                          swatch: _MarkerSwatch.circle(
+                            color: matchedColor,
+                            radius: 4,
+                          ),
                           value: _showMatchedCircles,
-                          onChanged: (v) => setState(() => _showMatchedCircles = v),
+                          onChanged: (v) =>
+                              setState(() => _showMatchedCircles = v),
                         ),
                         _OverlayToggle(
                           label: 'Star names',
                           color: namedColor,
                           // Bigger swatch circle: matches the larger,
                           // labeled circles actually drawn for these.
-                          swatch: _MarkerSwatch.circle(color: namedColor, radius: 7),
+                          swatch: _MarkerSwatch.circle(
+                            color: namedColor,
+                            radius: 7,
+                          ),
                           value: _showNamedStars,
                           onChanged: (v) => setState(() => _showNamedStars = v),
                         ),
@@ -810,8 +1049,23 @@ class _SolveScreenState extends State<SolveScreen> {
                           color: lineColor,
                           swatch: _MarkerSwatch.line(color: lineColor),
                           value: _showConstellationLines,
-                          onChanged: (v) => setState(() => _showConstellationLines = v),
+                          onChanged: (v) =>
+                              setState(() => _showConstellationLines = v),
                         ),
+                        // Only shown once there's a marker to toggle — no
+                        // dead checkbox before a target has been chosen
+                        // and successfully projected.
+                        if (_targetMarker != null)
+                          _OverlayToggle(
+                            label: 'Target',
+                            color: targetColor,
+                            swatch: _MarkerSwatch.star(
+                              color: targetColor,
+                              radius: 8,
+                            ),
+                            value: _showTarget,
+                            onChanged: (v) => setState(() => _showTarget = v),
+                          ),
                         IconButton(
                           icon: const Icon(Icons.help_outline, size: 20),
                           tooltip: 'What are these?',
@@ -828,9 +1082,13 @@ class _SolveScreenState extends State<SolveScreen> {
             if (result != null)
               _ResultCard(
                 result: result,
-                nameController: _currentHistoryId != null ? _resultNameController : null,
+                nameController: _currentHistoryId != null
+                    ? _resultNameController
+                    : null,
                 onNameChanged: _onResultNameChanged,
                 onOpenSettings: _openAdvancedSettings,
+                target: _targetMarker,
+                skyTarget: _target,
               ),
             const SizedBox(height: 24),
             Row(
@@ -839,7 +1097,9 @@ class _SolveScreenState extends State<SolveScreen> {
                 TextButton.icon(
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const AboutScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const AboutScreen(),
+                    ),
                   ),
                   icon: const Icon(Icons.info_outline, size: 18),
                   label: const Text('About'),
@@ -892,7 +1152,8 @@ class _DownloadDialogState extends State<_DownloadDialog> {
       await DbManager.download(
         widget.bucket,
         onProgress: (received, total) {
-          if (mounted && total > 0) setState(() => _progress = received / total);
+          if (mounted && total > 0)
+            setState(() => _progress = received / total);
         },
       );
       if (mounted) Navigator.pop(context, true);
@@ -914,10 +1175,15 @@ class _DownloadDialogState extends State<_DownloadDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${widget.bucket.focalLengthRange} lenses · ${widget.bucket.sizeLabel}'),
+          Text(
+            '${widget.bucket.focalLengthRange} lenses · ${widget.bucket.sizeLabel}',
+          ),
           const SizedBox(height: 16),
           if (_error != null)
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            )
           else
             LinearProgressIndicator(value: _progress),
         ],
@@ -927,8 +1193,82 @@ class _DownloadDialogState extends State<_DownloadDialog> {
           onPressed: () => Navigator.pop(context, false),
           child: const Text('Cancel'),
         ),
-        if (_error != null) FilledButton(onPressed: _start, child: const Text('Retry')),
+        if (_error != null)
+          FilledButton(onPressed: _start, child: const Text('Retry')),
       ],
+    );
+  }
+}
+
+/// Full-screen, pinch-to-zoom view of the preview image — tapping the
+/// small preview opens this rather than being stuck at the fixed 320dp
+/// preview height, with the same overlay markers/toggle state carried
+/// over from the main screen (a screenshot-worthy close look at exactly
+/// what's already on screen, not a separate re-rendering).
+class _FullScreenImageViewer extends StatelessWidget {
+  const _FullScreenImageViewer({
+    required this.imageBytes,
+    required this.result,
+    required this.showMatchedCircles,
+    required this.showNamedStars,
+    required this.showConstellationLines,
+    required this.showTarget,
+    required this.namedStars,
+    required this.constellationLines,
+    required this.targetMarker,
+  });
+
+  final Uint8List imageBytes;
+  final SolveOutcome? result;
+  final bool showMatchedCircles;
+  final bool showNamedStars;
+  final bool showConstellationLines;
+  final bool showTarget;
+  final List<NamedStarPosition> namedStars;
+  final List<List<Offset?>> constellationLines;
+  final TargetMarker? targetMarker;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = this.result;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          maxScale: 6,
+          child: result != null && result.success
+              ? ValueListenableBuilder<bool>(
+                  valueListenable: NightMode.enabled,
+                  builder: (context, night, _) => StarOverlayImage(
+                    imageBytes: imageBytes,
+                    matchedX: showMatchedCircles
+                        ? result.matchedStarX
+                        : const [],
+                    matchedY: showMatchedCircles
+                        ? result.matchedStarY
+                        : const [],
+                    namedStars: showNamedStars ? namedStars : const [],
+                    constellationLines: showConstellationLines
+                        ? constellationLines
+                        : const [],
+                    target: showTarget ? targetMarker : null,
+                    overrideColor: night ? nightModeColor : null,
+                    height: screenHeight,
+                  ),
+                )
+              : Image.memory(
+                  imageBytes,
+                  fit: BoxFit.contain,
+                  height: screenHeight,
+                ),
+        ),
+      ),
     );
   }
 }
@@ -968,7 +1308,10 @@ class _OverlayToggle extends StatelessWidget {
           ),
           swatch,
           const SizedBox(width: 6),
-          Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          Text(
+            label,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );
@@ -978,54 +1321,79 @@ class _OverlayToggle extends StatelessWidget {
 /// A tiny rendering of the actual overlay marker shown next to each
 /// toggle's label — a circle at (roughly) the marker's real relative size,
 /// or a diagonal line for the constellation-line toggle.
+enum _SwatchKind { circle, line, star }
+
 class _MarkerSwatch extends StatelessWidget {
   const _MarkerSwatch.circle({required Color color, required double radius})
     : _color = color,
       _radius = radius,
-      _isLine = false;
+      _kind = _SwatchKind.circle;
 
   const _MarkerSwatch.line({required Color color})
     : _color = color,
       _radius = 0,
-      _isLine = true;
+      _kind = _SwatchKind.line;
+
+  const _MarkerSwatch.star({required Color color, required double radius})
+    : _color = color,
+      _radius = radius,
+      _kind = _SwatchKind.star;
 
   final Color _color;
   final double _radius;
-  final bool _isLine;
+  final _SwatchKind _kind;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 20,
       height: 20,
-      child: CustomPaint(painter: _MarkerSwatchPainter(_color, _radius, _isLine)),
+      child: CustomPaint(painter: _MarkerSwatchPainter(_color, _radius, _kind)),
     );
   }
 }
 
 class _MarkerSwatchPainter extends CustomPainter {
-  _MarkerSwatchPainter(this.color, this.radius, this.isLine);
+  _MarkerSwatchPainter(this.color, this.radius, this.kind);
 
   final Color color;
   final double radius;
-  final bool isLine;
+  final _SwatchKind kind;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = isLine ? 2.5 : 1.8;
-    if (isLine) {
-      canvas.drawLine(Offset(3, size.height - 3), Offset(size.width - 3, 3), paint);
-    } else {
-      canvas.drawCircle(Offset(size.width / 2, size.height / 2), radius, paint);
+      ..strokeWidth = kind == _SwatchKind.line ? 2.5 : 1.8;
+    switch (kind) {
+      case _SwatchKind.line:
+        canvas.drawLine(
+          Offset(3, size.height - 3),
+          Offset(size.width - 3, 3),
+          paint,
+        );
+      case _SwatchKind.circle:
+        canvas.drawCircle(
+          Offset(size.width / 2, size.height / 2),
+          radius,
+          paint,
+        );
+      case _SwatchKind.star:
+        // The real overlay marker's own path constructor — a true
+        // miniature of what's actually drawn, not a lookalike.
+        canvas.drawPath(
+          targetStarPath(Offset(size.width / 2, size.height / 2), radius),
+          paint,
+        );
     }
   }
 
   @override
   bool shouldRepaint(covariant _MarkerSwatchPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.radius != radius || oldDelegate.isLine != isLine;
+      oldDelegate.color != color ||
+      oldDelegate.radius != radius ||
+      oldDelegate.kind != kind;
 }
 
 class _ResultCard extends StatelessWidget {
@@ -1034,12 +1402,16 @@ class _ResultCard extends StatelessWidget {
     required this.nameController,
     required this.onNameChanged,
     required this.onOpenSettings,
+    this.target,
+    this.skyTarget,
   });
 
   final SolveOutcome result;
   final TextEditingController? nameController;
   final ValueChanged<String> onNameChanged;
   final VoidCallback onOpenSettings;
+  final SkyTarget? skyTarget;
+  final TargetMarker? target;
 
   @override
   Widget build(BuildContext context) {
@@ -1119,6 +1491,12 @@ class _ResultCard extends StatelessWidget {
               'Solve time: ${result.solveTimeMs.toStringAsFixed(1)} ms',
               style: const TextStyle(fontFamily: 'monospace'),
             ),
+            if (target != null)
+              Text(
+                _targetOffsetLine(target!),
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
+            if (skyTarget != null) MeridianStatusLine(target: skyTarget),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () {
@@ -1134,6 +1512,27 @@ class _ResultCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The result card's one-line summary of where the chosen target ended up
+/// relative to this solve — under 1 degree switches to arcminutes, since a
+/// well-centered target (the interesting case) would otherwise read as an
+/// unreadable "0.03°".
+String _targetOffsetLine(TargetMarker target) {
+  final sep = target.separationDeg;
+  final distance = sep < 1
+      ? '${(sep * 60).toStringAsFixed(1)}\''
+      : '${sep.toStringAsFixed(2)}°';
+  switch (target.status) {
+    case SkyProjectionStatus.inFrame:
+      return 'Target: ${target.name} — $distance from center (in frame)';
+    case SkyProjectionStatus.offFrame:
+      return 'Target: ${target.name} — $distance from center (outside frame)';
+    case SkyProjectionStatus.behindCamera:
+      return target.direction == Offset.zero
+          ? 'Target: ${target.name} — $distance away (opposite side of the sky)'
+          : 'Target: ${target.name} — $distance away (behind the camera)';
   }
 }
 

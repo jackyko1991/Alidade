@@ -63,6 +63,21 @@ test('loads, has no console errors, and downloads a solver database', async ({ p
   await expect(page.getByText('No solves yet')).toBeVisible({ timeout: 10_000 });
   await page.goBack();
 
+  // The target picker's catalog assets (deepsky.json, double_stars.json,
+  // etc.) are loaded via rootBundle like every other bundled JSON here —
+  // same class of web-only risk as the `dbs/` database fetch above, so
+  // worth a real-browser leg even though the picker's own behaviour is
+  // covered by target_picker_test.dart. "Choose target" is the explicit
+  // Semantics label TargetSelectorField wraps itself in (see
+  // target_picker.dart), so this doesn't depend on how Material composes
+  // an InputDecorator's label + value into an accessible name.
+  await page.getByRole('button', { name: 'Choose target' }).click();
+  await expect(page.getByRole('textbox', { name: /Search targets/i })).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.goBack();
+  await expect(page.getByRole('button', { name: 'Choose target' })).toBeVisible();
+
   expect(
     consoleErrors.filter((e) => !e.includes('Buffers cannot be shared')),
     `Unexpected console/page errors:\n${consoleErrors.join('\n')}`,

@@ -29,6 +29,8 @@ spike/data/catalogs/*.raw.json
 spike/data/catalogs/*.dat
 spike/data/catalogs/*.dat.gz
 spike/data/catalogs/*.readme
+spike/data/catalogs/*.csv
+spike/data/catalogs/wds_summ.txt
 spike/data/catalogs/messier_raw.json
 spike/data/iau_proper_stars.csv
 spike/target/

@@ -37,6 +37,7 @@ class HistoryStore {
     required double solveTimeMs,
     required List<double> matchedStarX,
     required List<double> matchedStarY,
+    Map<String, dynamic>? target,
   }) async {
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final thumbnailFileName = '$id.png';
@@ -69,6 +70,7 @@ class HistoryStore {
         solveTimeMs: solveTimeMs,
         matchedStarX: matchedStarX,
         matchedStarY: matchedStarY,
+        target: target,
       ),
     );
     return List.unmodifiable(_entries);
@@ -77,6 +79,16 @@ class HistoryStore {
   static Future<List<HistoryEntry>> rename(String id, String newName) async {
     for (final e in _entries) {
       if (e.id == id) e.name = newName;
+    }
+    return List.unmodifiable(_entries);
+  }
+
+  static Future<List<HistoryEntry>> setTarget(
+    String id,
+    Map<String, dynamic>? target,
+  ) async {
+    for (final e in _entries) {
+      if (e.id == id) e.target = target;
     }
     return List.unmodifiable(_entries);
   }
