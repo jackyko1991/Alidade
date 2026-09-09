@@ -7,6 +7,9 @@ const _tetra3rsUrl = 'https://github.com/ssmichael1/tetra3rs';
 const _tetra3EsaUrl = 'https://github.com/esa/tetra3';
 const _iauStarNamesUrl = 'https://github.com/cyschneck/iau-star-names';
 const _d3CelestialUrl = 'https://github.com/ofrohn/d3-celestial';
+const _openNgcUrl = 'https://github.com/mattiaverga/OpenNGC';
+const _wdsUrl = 'https://www.astro.gsu.edu/wds/';
+const _jplHorizonsUrl = 'https://ssd.jpl.nasa.gov/planets/approx_pos.html';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -94,6 +97,21 @@ class AboutScreen extends StatelessWidget {
                 _LinkRow(
                   label: 'Constellation lines: d3-celestial by Olaf Frohn (BSD-3-Clause)',
                   onTap: () => _open(_d3CelestialUrl),
+                ),
+                const SizedBox(height: 4),
+                _LinkRow(
+                  label: 'Deep-sky objects: OpenNGC by Mattia Verga (CC BY-SA 4.0)',
+                  onTap: () => _open(_openNgcUrl),
+                ),
+                const SizedBox(height: 4),
+                _LinkRow(
+                  label: 'Double stars: Washington Double Star Catalog (USNO, public domain)',
+                  onTap: () => _open(_wdsUrl),
+                ),
+                const SizedBox(height: 4),
+                _LinkRow(
+                  label: 'Planet/Moon positions: JPL low-precision elements + Meeus algorithms',
+                  onTap: () => _open(_jplHorizonsUrl),
                 ),
               ],
             ),

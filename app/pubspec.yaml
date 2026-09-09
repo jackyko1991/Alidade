@@ -94,6 +94,8 @@ flutter:
     - assets/messier.json
     - assets/bsc5_designations.json
     - assets/constellation_lines.json
+    - assets/deepsky.json
+    - assets/double_stars.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
